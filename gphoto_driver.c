@@ -1,20 +1,20 @@
 /*******************************************************************************
   Copyright(c) 2009 Geoffrey Hausheer. All rights reserved.
-  
-  This program is free software; you can redistribute it and/or modify it 
-  under the terms of the GNU General Public License as published by the Free 
-  Software Foundation; either version 2 of the License, or (at your option) 
+
+  This program is free software; you can redistribute it and/or modify it
+  under the terms of the GNU General Public License as published by the Free
+  Software Foundation; either version 2 of the License, or (at your option)
   any later version.
-  
-  This program is distributed in the hope that it will be useful, but WITHOUT 
-  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
-  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+
+  This program is distributed in the hope that it will be useful, but WITHOUT
+  ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+  FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
   more details.
-  
+
   You should have received a copy of the GNU General Public License along with
-  this program; if not, write to the Free Software Foundation, Inc., 59 
+  this program; if not, write to the Free Software Foundation, Inc., 59
   Temple Place - Suite 330, Boston, MA  02111-1307, USA.
-  
+
   The full GNU General Public License is included in this distribution in the
   file called LICENSE.
 *******************************************************************************/
@@ -58,6 +58,7 @@ struct _gphoto_driver {
 	gphoto_widget		*iso_widget;
 	gphoto_widget		*exposure_widget;
 	gphoto_widget		*bulb_widget;
+	gphoto_widget		*autoexposuremode_widget;
 	char			bulb_port[256];
 	int			bulb_fd;
 
@@ -87,7 +88,7 @@ static int debug = 0;
 
 void gphoto_set_debug(int value)
 {
-    debug = value;    
+    debug = value;
 }
 
 static void errordumper(GPLogLevel level, const char *domain, const char *str,
@@ -384,7 +385,7 @@ static void *stop_bulb(void *arg)
 				gp_dprintf("Closing shutter\n");
 				if (gphoto->bulb_widget) {
 					gp_dprintf("Using widget:%s\n",gphoto->bulb_widget->name);
-					if(strcmp(gphoto->bulb_widget->name, "eosremoterelease") == 0 ) 
+					if(strcmp(gphoto->bulb_widget->name, "eosremoterelease") == 0 )
 					{
 						gphoto_set_widget_num(gphoto, gphoto->bulb_widget, 4);  //600D eosremoterelease RELEASE FULL
 					} else {
@@ -539,7 +540,7 @@ int gphoto_start_exposure(gphoto_driver *gphoto, unsigned int exptime_msec, int 
 
     if (exptime_msec > 5000)
     {
-		if ((! gphoto->bulb_port[0] && ! gphoto->bulb_widget) ||
+		if ((! gphoto->bulb_port[0] && !(gphoto->autoexposuremode_widget->value.index == 4)) ||
   		    (idx = find_bulb_exposure(gphoto, gphoto->exposure_widget)) == -1)
 		{
 			fprintf(stderr, "Warning: Bulb mode isn't supported.  exposure limited to maximum camera exposure\n");
@@ -551,11 +552,11 @@ int gphoto_start_exposure(gphoto_driver *gphoto, unsigned int exptime_msec, int 
             //if (gphoto->upload_settings != GP_UPLOAD_CLIENT)
             //idx = 1;
 			gp_dprintf("Using bulb mode. idx:%u\n",idx);
-		        
+
 			gphoto_set_widget_num(gphoto, gphoto->exposure_widget, idx);
                         if(mirror_lock && gphoto_mirrorlock(gphoto, mirror_lock*1000))
                             return 1;
-		
+
 			gettimeofday(&gphoto->bulb_end, NULL);
 			unsigned int usec = gphoto->bulb_end.tv_usec + exptime_msec % 1000 * 1000;
 			gphoto->bulb_end.tv_sec = gphoto->bulb_end.tv_sec + exptime_msec / 1000 + usec / 1000000;
@@ -572,7 +573,7 @@ int gphoto_start_exposure(gphoto_driver *gphoto, unsigned int exptime_msec, int 
             } else
             {
 				gp_dprintf("Using widget:%s\n",gphoto->bulb_widget->name);
-				if(strcmp(gphoto->bulb_widget->name, "eosremoterelease") == 0 ) 
+				if(strcmp(gphoto->bulb_widget->name, "eosremoterelease") == 0 )
 				{
 					gphoto_set_widget_num(gphoto, gphoto->bulb_widget, 2); //600D eosremoterelease PRESS FULL
 				} else {
@@ -775,7 +776,7 @@ gphoto_driver *gphoto_open(const char *shutter_release_port)
 	if ( (gphoto->exposure_widget = find_widget(gphoto, "shutterspeed2")) ||
 	     (gphoto->exposure_widget = find_widget(gphoto, "shutterspeed")) ||
              (gphoto->exposure_widget = find_widget(gphoto, "eos-shutterspeed")) )
-	{        
+	{
 		gphoto->exposure = parse_shutterspeed(gphoto->exposure_widget->choices, gphoto->exposure_widget->choice_cnt);
     } else if ((gphoto->exposure_widget = find_widget(gphoto, "capturetarget")))
     {
@@ -798,13 +799,19 @@ gphoto_driver *gphoto_open(const char *shutter_release_port)
 	}
 	gphoto->iso = -1;
 
-	if ( !(gphoto->bulb_widget = find_widget(gphoto, "bulb")) )
-    {
-        gp_dprintf("bulb widget found\n");
+//	if ( !(gphoto->bulb_widget = find_widget(gphoto, "bulb")) )
+//    	{
+	if ( (gphoto->autoexposuremode_widget = find_widget(gphoto,"autoexposuremode")) ) {
+           if (gphoto->autoexposuremode_widget->value.index == 4) {
+             gp_dprintf("Rotary dial in bulb mode\n");
 	     if ( !(gphoto->bulb_widget = find_widget(gphoto, "eosremoterelease")) )
 	     {
-    	          gp_dprintf("Using eosremoterelease command\n");	
+    	          gp_dprintf("Using eosremoterelease command\n");
 	     }
+           } else {
+             gp_dprintf("Rotary dial in Manual mode\n");
+	     fprintf(stderr, "Warning: Rotary dial set to Manual, Bulb mode isn't supported.\nExposure limited to maximum camera exposure\n");
+           }
 	}
 
 	if(shutter_release_port) {
@@ -847,6 +854,8 @@ int gphoto_close(gphoto_driver *gphoto)
 		widget_free(gphoto->iso_widget);
 	if (gphoto->bulb_widget)
 		widget_free(gphoto->bulb_widget);
+  if (gphoto->gphoto->autoexposuremode_widget)
+    widget_free(gphoto->autoexposuremode_widget);
 
 	while(gphoto->widgets) {
 		gphoto_widget_list *next = gphoto->widgets->next;
@@ -875,7 +884,7 @@ gphoto_widget *gphoto_get_widget_info(gphoto_driver *gphoto, gphoto_widget_list 
     // Read next iterator regrardless of return value.
     *iter=(*iter)->next;
     if (ret == GP_OK)
-    {        
+    {
         return widget;
     }
     else
@@ -972,7 +981,7 @@ static void find_all_widgets(gphoto_driver *gphoto, CameraWidget *widget,
 
 	for (i=0; i<n; i++) {
 		CameraWidget *child;
-	
+
 		ret = gp_widget_get_child (widget, i, &child);
 		if (ret != GP_OK)
 			continue;
@@ -1304,7 +1313,7 @@ int main (int argc,char **argv)
 
 	while (1) {
 		char c;
-		c = getopt_long (argc, argv, 
+		c = getopt_long (argc, argv,
                      "c:de:f:hi:lm:p:",
                      long_options, NULL);
 		if(c == EOF)
